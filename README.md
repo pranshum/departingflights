@@ -1,9 +1,15 @@
 ## System Overview
-For any given airline operating at an airport, the system provides a browser based UI for airline staff to manage regularly scheduled flights. The system presents a "Shared Calendar View" of all the flights departing on a given day, week, month etc and allows airline staff to manage their outbound flights. 
+For any given airline operating at an airport, the system provides a browser based UI for airline staff to manage regularly scheduled flights. The system presents a "Shared Calendar View" of all the flights departing on a given day, week, month etc. and allows airline staff to manage their outbound flights. 
 
-The core business logic for the system utlises `RRule` strings to generate the recurring flights. Using `RRule` means that airline staff can set the schedule regularly repeating flights as a 'series' as opposed to manually creating flights per day, per week, per month etc. Any amendment to the flight schedule means that the entire series of upcoming flights can be automatically adjusted.
+The core business logic for the system utilises [RRule](https://icalendar.org/iCalendar-RFC-5545/3-8-5-3-recurrence-rule.html) patterns to generate recurring flights. By Using `RRule` patterns, airline staff can schedule regularly repeating flights as a 'series' instead of manually creating flights per day, per week, per month etc. Any amendment to the flight schedule means that the entire series of upcoming flights can be automatically adjusted.
 
-A shared calendar allows airline staff to compare their flights with other airlines to ensure no conflicts occur. The airport can also set a global `max_flights` property, which can function as an upper ceiling for number of flights permitted daily.
+A shared calendar view enables airline staff to compare their flights with other airlines to ensure no conflicts occur. The airport can also set a global `max_flights` property, which can function as an upper ceiling for number of flights permitted daily.
+
+This solution design proposes an event driven architecture for achieving desired system specifications. For visualising past, present and future flights on a calendar, the system introduces the concept of `FlightSchedule` and `Flight`. The `FlightSchedule` object contains the `RRule` which is used by the client to draw all future occurrences of a given flight. Subsequently, the `Flight` object is automatically created by the [Flight Scheduling Engine](#flight-scheduling-engine) by forward-looking 48 hours from current time. Once created, status of a given `Flight` is set to `CheckIn` and the airline staff are given the ability to edit departure times and set flight status. Any changes to a given flight result in event generation which are distributed using an event distribution system such as Event Hub or Kafka (for local dev). 
+
+Passenger facing information is maintained by the [Flight Info Engine](#flight-info-engine) which subscribes to various events and updates the flight information database depending on the event type. Flight information is exposed to the web for consumption by passenger apps and flight information displays by the [Flight Information Api](#flight-info-api)
+
+Appropriate APIs for both flight information displays and passengers have been exposed.
 
 ---
 ## General Assumptions 
@@ -12,15 +18,16 @@ A shared calendar allows airline staff to compare their flights with other airli
 - System allows selection from only available departure gates
 - A "regularly scheduled" flight has the same recurrent time across different days of the week
 - Each flight has only a single departure per day (i.e. the granularity of recurrence is bound to daily)
-- System can automatically set the status of a flight to check-in 48 hours prior to departure
+- System will automatically set the status of a flight to `check in` 48 hours prior to departure
 - Recurrence schedule of a flight with `status=check_in` cannot be altered
 - Departure gates are always available
 - No "auditing" features available in this version of the product
-- All SQL relational modelling is depicted using [EF Core Conventions](https://docs.microsoft.com/en-us/ef/core/modeling/relationships?tabs=fluent-api%2Cfluent-api-simple-key%2Csimple-key#conventions)
+- __All SQL relational modelling is depicted using [EF Core Conventions](https://docs.microsoft.com/en-us/ef/core/modeling/relationships?tabs=fluent-api%2Cfluent-api-simple-key%2Csimple-key#conventions)__
+- Forgiveness for the crude wireframes
 
 ---
 
-## Techology Stack
+## Technology Stack
 - ASP.NET Core
 - Entity Framework Core
 - AKKA.NET
@@ -37,15 +44,16 @@ A shared calendar allows airline staff to compare their flights with other airli
 ## Core Domain Objects
 `Airline` - Models a given airline 
 
-### Basic model:
+### Basic models:
 ```csharp
 public class Airline {
     public int Id { get; set; }
     public string Name {get; set; } 
+
+    //...
 }
 ```
 
-### Basic model:
 `FlightSchedule` - Models a regularly scheduled flight
 
 ```csharp
@@ -56,6 +64,8 @@ public class Airline {
 
         public Airline Airline { get; set; }
         public Destination Destination { get; set; }
+
+        //...
     }
 ```
 
@@ -65,16 +75,19 @@ public class Airline {
     public class Flight {
         public int Id { get; set; }
         public int FlightNumber { get; set; }
-        public FlightStatus FlightStatus {get; set; }
-        public Destination Destination { get; set; }
+        public FlightStatus FlightStatus {get; set; } //enum
 
         public DateTime ScheduledDepartureTimeUtc { get; set; }
         public DateTime EstimatedDepartureTimeUtc { get; set; }
         public DateTime ActualDepartureTimeUtc { get; set; }
 
+        // Navigation properties
+        public Destination Destination { get; set; }
         public DepatureGate DepartureGate { get; set; }
         public FlightSchedule FlightSchedule {get; set; }
         public Airline Airline { get; set; }
+
+        //...
     }
 ```
 
@@ -87,7 +100,10 @@ public class Airline {
         public string FirstName { get; set; } 
         public string LastName  { get; set; } 
 
+        // Navigation properties
         public List<UserPermissions> UserPermissions { get; set; }
+
+        //...
     }
 ```
 
@@ -97,9 +113,12 @@ public class Airline {
     public class UserPermissions {
         public int Id { get; set; }
         public int User { get; set; }
-
-        public Airline AirlineId { get; set; }
         public string Role { get; set; }
+
+        // Navigation properties
+        public Airline Airline { get; set; }
+
+        //...
     }
 ```
 
@@ -108,6 +127,8 @@ public class Airline {
     public class DepartureGate {
         public int Id { get; set; }
         public string Name { get; set; }
+
+        //...
     }
 ```
 
@@ -119,6 +140,8 @@ public class Airline {
         public string Name { get; set; }
         public string Email { get; set; }
         public string CellPhoneNumber { get; set; }  
+
+        //...
     }
 ```
 
@@ -130,8 +153,11 @@ public class Airline {
         public string GcmDeviceId { get; set; } //google cloud manager
         public string ApnsDeviceId { get; set; } //apple push notification service
 
+        // Navigation properties
         public FlightInformation FlightInformation { get; set; }
         public Passenger Passenger { get; set; }  
+
+        //...
     }
 ```
 
@@ -148,6 +174,8 @@ public class Airline {
         
         public string Destination { get; set; }
         public string DepartureGate { get; set; }
+
+        //...
     }
 ```
 
@@ -170,20 +198,26 @@ public class Airline {
 ### Flight Scheduling UI
 This is the primary UI for the airline staff for managing scheduled flights. It presents a calendar type view of the all the past, current and upcoming flights for all airlines in a single unified view.
 
+![System Architecture](edit_flight.PNG)
+
 ``` 
 Note: As per specs, the user is only allowed to change data for their Airline. The access given to this logged
 in user can be derived from querying the UserPermissions table.
 ```
 
-For an upcoming scheduled flight for which the status is `OnTime`, a user can:
+![System Architecture](sch_ui_1.PNG)
+
+For an upcoming scheduled flight with the status of `OnTime`, a user can:
 - Create a new scheduled flight
 - Edit a scheduled flight
 - Remove a scheduled flight
 
-Once a flight's has transitioned into the `CheckIn` status, a user can:
+When the flight status is set to `CheckIn`, a user can:
 - Change status of a flight to `Boarding, Departed, Cancelled or Delayed`
 
-Once a flight's status is set to `Boarding`:
+![System Architecture](manage_flight.PNG)
+
+When the flight status is set to `Boarding`:
  - User is prevented to selecting any other statuses
  - User is able to allocate a departure gate
 
@@ -191,12 +225,17 @@ Once a flight's status is set to `Boarding`:
 The UI is a brower based single page application and can use Bearer Token authentication by utilising a authentication server which supports OIDC and OAuth 2 protocols e.g. IdentityServer, Azure B2C, Azure AD, Auth0, Okta etc.
 ```
 
+
 ### Flight Scheduling API
 Built using ASP.NET Core's api controllers, this web api application exposes the flight scheduling functionality to end users.
 
-One point to highlight here is that for `command` type operations, i.e. operations that mutate the state of a flight schedule or a flight, are not handled in an API controller. Instead, a `message` is published to Event Hubs for asynchronous processing. Given that the messages are consistently published to the same partitions (using partition keys), ordering can be guranteed. Given that two users at the same time might be editing the same flight schedule, a race condition can be resolved using the last save wins type heuristic. This might not be desirable, but its an assumption being made here.
+One point to highlight here is that for `command` type operations, i.e. operations that mutate the state of a flight schedule or a flight, are not handled in an API controller. Instead, a `message` is published to Event Hubs for asynchronous processing. Given that the messages are consistently published to the same partitions (using partition keys), ordering can be guaranteed. Given that two users at the same time might be editing the same flight schedule, a race condition can be resolved using the last save wins type heuristic. This might not be desirable, but its an assumption being made here.
 
-All controllers can be stateless and hence if required, multiple replicas of this application can be run in kubernetes and use a load balancer to distribute load equally among all replicas.
+For querying all flights, an endpoint accepting a date range can be exposed. The endpoint will return, all flights and flight schedules active within the date range which can be used by the front-end for visualisation.
+
+All controllers can be stateless and hence if required, multiple replicas of this application can be run in Kubernetes and use a load balancer to distribute load equally among all replicas.
+
+
 
 ### Flight Scheduling Engine
 The flight scheduling engine is the business logic layer of the application. It is a distributed parallel data processing application built using Akka.Net and [utilises the actor programming model](https://en.wikipedia.org/wiki/Actor_model). 
@@ -226,7 +265,7 @@ When a request for creation of a new flight schedule is received, this actor cre
 
 `FlightScheduleActor`
 
-This actor is resposible for management of the flight schedule in the database as well creation of `Flight` actor when a flight's departure time is 48 hours or less.
+This actor is responsible for management of the flight schedule in the database as well creation of `Flight` actor when a flight's departure time is 48 hours or less.
 
 It handles messages for:
 - Initialising a new flight schedule (i.e. creating `FlightSchedule` database entry)
@@ -266,7 +305,7 @@ This actor can also self-monitor. For example, it can raise an alert if a depart
 
 ```
 
-Testing of business logic can be easily performed by writing test cases against the flight actor and ensuring it maintains data integrity and generates the required events. 
+Business logic testing can be done by writing test cases against the flight actor and ensuring it maintains data integrity and generates the required events. 
 
 
 ```
@@ -310,7 +349,7 @@ This actor is created for a flight and is responsible for processing all message
 
 `FlightNotificationActor`
 
-This actor is responsible for sending push notifications via Azure Notification Hub. Based on the device registered, the notification will either be sent via Google Cloud Manager or Apple Push Notifiction Service.
+This actor is responsible for sending push notifications via Azure Notification Hub. Based on the device registered, the notification will either be sent via Google Cloud Manager or Apple Push Notification Service.
 
 All subscribed passengers for the flight are fetched by querying `PassengerFlightNotificationSubscription` table and notified either the `FlightStatusChanged` or `FlightDepatureGateAssigned` message is received. 
 
@@ -320,7 +359,7 @@ Built using ASP.NET Core's api controllers, this web api application exposes the
 
 Since push notifications inherently require a native mobile application for either iOS or Android, it can be assumed that a passenger queries for flight information using an app. It is also assumed that the passenger requires no further authentication or authorization to subscribe to updates for a flight, **the device itself is registered with the backend**. Optionally, when the passenger clicks the `subcribe to flight` (or similar) button, some information such as email, mobile number etc can be collected to prevent junk subscriptions.
 
-Flight Information screens can also query the API to get a list of departing flights. Assuming that some sort of polling mechansim is used to query the API at set intervals and refresh the screens.
+Flight Information screens can also query the API to get a list of departing flights. Assuming that some sort of polling mechanism is used to query the API at set intervals and refresh the screens.
 
 To deal with traffic spikes - replication, caching and load balancing can be utilised.
 
@@ -360,12 +399,38 @@ System is optimised to ensure that each component can be indepently tested.
 - UI Projects can be developed using VS Code in case of the flight scheduler UI or native apps as per specs
 - Common domain objects can be housed in a dll and referenced across the solution
 - Each backend component can be run locally using Visual Studio's container orchestration features
-- Project configuration for local environment can be maintained using a combinatino of appsetting, secrets and envrionment variables
+- Project configuration for local environment can be maintained using a combination of appsetting, secrets and environment variables
 - Whole solution can be run locally from Visual Studio by creating a simple `docker-compose.yml` file
 
 ---
 
 ## Cloud vs on prem
-- Deployment on prem can be done via a techology such as Azure Stack
+- Deployment on prem can be done via a technology such as Azure Stack
 - Internet facing services can be exposed as necessary
+
+---
+
+## Development estimates
+Assuming that an iterative development process is undertaken, and the product is being developed from group-up. It is assumed that a product manager has identified all the required features and functionality. Ignoring end-user input.
+
+Ideal team should consist of 2-3 full stack developers, a tester and product owner. Tasks can be split such that two components can be developed in parallel. Testing and development should happen in parallel.
+
+
+| Sprint | Duration | Task |
+|--------| ---------|------|
+| 0 | 1 week | Development and DevOps setup, initial project kick off |
+| 1 | 2 weeks | Initial implementation of flight scheduling engine |
+| 1 | 2 weeks | Initial implementation of flight scheduling API |
+| 2 | 2 weeks | Initial implementation of flight scheduling UI |
+| 2 | 2 weeks | Initial implementation of flight Info engine |
+| 3 | 2 weeks | Initial implementation of flight Info API |
+| 4 | 2 weeks | System refinements based on end user feedback, bug fixes, system stabilization, load testing |
+| 5 | 2 weeks | System refinements based on end user feedback, bug fixes, system stabilization, load testing |
+| 6 | 1 week  | Code freeze, final version in UAT, pushed to pre-prod |
+| 7 | 1 week  | Deployment to prod |
+
+
+
+
+
 
