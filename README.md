@@ -405,13 +405,14 @@ System is optimised to ensure that each component can be indepently tested.
 ---
 
 ## Cloud vs on prem
-- Deployment on prem can be done via a technology such as Azure Stack
+- A on-prem server running Kubernetes can also be utilised to deploy the solution
+- Deployment on prem can be done via a technology such as Azure Stack (to keep parity with cloud)
 - Internet facing services can be exposed as necessary
 
 ---
 
 ## Development estimates
-Assuming that an iterative development process is undertaken, and the product is being developed from group-up. It is assumed that a product manager has identified all the required features and functionality. Ignoring end-user input.
+Assuming that an iterative development process is undertaken, and the product is being developed from groud-up. It is assumed that a product manager has identified all the required features and functionality. Ignoring end-user input.
 
 Ideal team should consist of 2-3 full stack developers, a tester and product owner. Tasks can be split such that two components can be developed in parallel. Testing and development should happen in parallel.
 
@@ -430,7 +431,13 @@ Ideal team should consist of 2-3 full stack developers, a tester and product own
 | 7 | 1 week  | Deployment to prod |
 
 
+---
 
+## Cool insights from the system that might be useful
+- Calculate cost to the airport due to delays (Scheduled - Actual)
+- Most punctual airlines
+- Present a dashboard metrics such as: most popular destinations, average delay, count of daily flights, average monthly flight cancellations etc.
+- If the type of aircraft was being collected, can potentially analyze if there is correlation between delays and aircraft models (i.e. older or poorly maintained aircraft might be cancelled or delayed more frequently)
 
 
 
